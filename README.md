@@ -11,42 +11,27 @@ whole setup; my own rules, model policy and memory live in private repos that pl
 | [nc-memory-template](https://github.com/iAmSerathion/nc-memory-template) | Template for the shared memory repo the agents read and write. |
 
 ```mermaid
-%%{init: {"flowchart": {"nodeSpacing": 20, "rankSpacing": 40}}}%%
 flowchart TB
   subgraph mac["Mac"]
-    AM["Claude Code,<br/>OpenCode, nc"]
-    HC["herdr-nc mods"]
+    direction LR
+    HC["herdr-nc cards"] ~~~ AM["Claude Code,<br/>OpenCode, nc"]
   end
   subgraph server["Linux server"]
-    AS["Claude Code,<br/>OpenCode, nc"]
-    NW["nc-work"]
-    BR["broker"]
-    subgraph task["nc-work task"]
-      T["agent container"]
-      KP["key proxy"]
-      EG["egress proxy"]
-    end
+    direction LR
+    AS["Claude Code,<br/>OpenCode, nc"] ~~~ NW["nc-work"] ~~~ BR["broker"]
+  end
+  subgraph task["nc-work task, one per job"]
+    direction LR
+    T["agent<br/>container"] --> KP["key proxy"] --> EG["egress proxy"]
   end
   subgraph gh["GitHub"]
-    OV["private<br/>overlay repo"]
-    MEM["private<br/>memory repo"]
-    PR["project<br/>repos"]
+    direction LR
+    OV["overlay<br/>(private)"] ~~~ MEM["memory<br/>(private)"] ~~~ PR["project<br/>repos"]
   end
-  AM -->|"1"| HC
-  HC -->|"menu, usage"| NW
-  T -->|"2, 3"| BR
-  BR -->|"2, 3"| AS
-  AS -->|"2"| NW
-  AM -->|"3"| MEM
-  AS -->|"3"| MEM
-  OV -->|"4"| AM
-  OV -->|"4"| AS
-  NW -->|"4"| T
-  T --> KP
-  KP --> EG
-  T --> EG
-  NW -->|"publish --push"| PR
-  AS ~~~ OV
+  mac -->|"1: status, usage, menu"| server
+  server <-->|"start + snapshot,<br/>2, 3: broker"| task
+  server -->|"3, 4, publish"| gh
+  task ~~~ gh
 ```
 
 On both machines `nc-harness` gives Claude Code and OpenCode the same rules, roles, skills, model policy and memory.
