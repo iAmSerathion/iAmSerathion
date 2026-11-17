@@ -11,71 +11,69 @@ whole setup; my own rules, model policy and memory live in private repos that pl
 | [nc-memory-template](https://github.com/iAmSerathion/nc-memory-template) | Template for the shared memory repo the agents read and write. |
 
 ```mermaid
-flowchart LR
+%%{init: {"flowchart": {"nodeSpacing": 20, "rankSpacing": 40}}}%%
+flowchart TB
   subgraph mac["Mac"]
+    AM["Claude Code,<br/>OpenCode, nc"]
     HC["herdr-nc mods"]
-    AM["Claude Code and OpenCode"]
-    NM["nc-harness: nc"]
   end
   subgraph server["Linux server"]
-    AS["Claude Code and OpenCode"]
-    NS["nc-harness: nc"]
+    AS["Claude Code,<br/>OpenCode, nc"]
     NW["nc-work"]
-    T["task containers"]
     BR["broker"]
-    KP["key proxy"]
-    EG["egress proxy"]
+    subgraph task["nc-work task"]
+      T["agent container"]
+      KP["key proxy"]
+      EG["egress proxy"]
+    end
   end
   subgraph gh["GitHub"]
-    PR["project repos"]
-    MEM["private memory repo"]
-    OV["private overlay repo"]
+    OV["private<br/>overlay repo"]
+    MEM["private<br/>memory repo"]
+    PR["project<br/>repos"]
   end
-  AM --> NM
-  AS --> NS
-  AM -->|"status file"| HC
-  HC -->|"menu: nc-work here"| NW
-  HC -->|"reads usage over SSH: hc get, nc-work feed"| NW
-  NW -->|"one container per task"| T
-  NW -->|"harness snapshot"| T
-  T -->|"nc delegate, nc memory add"| BR
-  BR -->|"nc delegate --broker"| NS
-  NS -->|"worker task"| NW
-  BR -->|"nc memory apply --broker"| NS
-  T -->|"OpenRouter calls"| KP
+  AM -->|"1"| HC
+  HC -->|"menu, usage"| NW
+  T -->|"2, 3"| BR
+  BR -->|"2, 3"| AS
+  AS -->|"2"| NW
+  AM -->|"3"| MEM
+  AS -->|"3"| MEM
+  OV -->|"4"| AM
+  OV -->|"4"| AS
+  NW -->|"4"| T
+  T --> KP
   KP --> EG
-  T -->|"allow list"| EG
-  NW -->|"you: nc-work publish --push"| PR
-  NM -->|"nc memory add"| MEM
-  NS -->|"nc memory add"| MEM
-  OV -->|"~/.nc/overlay"| NM
-  OV -->|"~/.nc/overlay"| NS
+  T --> EG
+  NW -->|"publish --push"| PR
+  AS ~~~ OV
 ```
 
 On both machines `nc-harness` gives Claude Code and OpenCode the same rules, roles, skills, model policy and memory.
 The host is the machine itself, outside any container: the Mac or the server. On the server, agents can also run
-isolated: `nc-work` starts one rootless container per task (an nc-work task), with no stored credentials. GitHub pushes
+isolated: `nc-work` starts one rootless agent container per task (an nc-work task, with its own egress proxy), with no stored credentials. GitHub pushes
 happen on the host, the Claude token is passed per session, and the OpenRouter key stays in a key proxy outside the
-agent container that adds it to each OpenRouter call. All other outbound traffic goes through an egress proxy with an
-allow list. Each task gets a harness snapshot, a read-only copy of nc-harness with my overlay files. The broker is a
-host process that carries out what a task asks for: starting a worker, writing a memory note. The herdr-nc mods on
-the Mac show each agent, worker and orchestrator plan, local or on the server; their menu starts isolated sessions
-with `nc-work here`.
+agent container that adds it to each OpenRouter call and sends it on through the egress proxy. All other outbound
+traffic from the agent container goes through that egress proxy, which has an allow list. Each task gets a harness
+snapshot, a read-only copy of nc-harness with my overlay files. The broker is a host process that carries out what a
+task asks for: starting a worker, writing a memory note. The herdr-nc mods on the Mac show each agent, worker and
+orchestrator plan, local or on the server; their menu starts isolated sessions with `nc-work here`, and they read
+usage from the server over SSH (`hc get`, `nc-work feed`).
 
-How the pieces talk:
+How the pieces talk (the numbers match the arrows in the diagram):
 
-- **Orchestrator to card.** The orchestrator is the main Claude Code session following the `crew` procedure. It
-  records its plan and progress in a status file with `nc orchestrator status`; the herdr-nc mod `nc-orchestrator`
-  shows it.
-- **`nc delegate` to worker.** An agent inside a task asks for a worker. The broker passes the request to
-  `nc delegate`, which checks role and model policy and starts an OpenCode worker in a task of its own. The result
-  comes back as a branch and a `RESULT.md`. Nothing is merged or pushed on its own: a task's branch reaches GitHub
-  only when I run `nc-work publish --push` on the host.
-- **`nc memory add` to the memory repo.** On the host the note is committed and pushed directly. From a task it goes
-  through the broker, and the host decides which project file it lands in.
-- **Overlay to policy and snapshot.** `~/.nc/overlay` is a link to my private overlay repo with my own `AGENTS.md`,
-  `models.yaml` and `profiles/`. `nc models` reads the model policy from it, `nc-work` bakes its `AGENTS.md` and
-  `models.yaml` into the harness snapshot, and `profiles/` holds my nc-work task profiles.
+1. **Orchestrator to card.** The orchestrator is the main Claude Code session following the `crew` procedure. It
+   records its plan and progress in a status file with `nc orchestrator status`; the herdr-nc mod `nc-orchestrator`
+   shows it.
+2. **`nc delegate` to worker.** An agent inside a task asks for a worker. The broker passes the request to
+   `nc delegate --broker` on the host, which checks role and model policy and starts an OpenCode worker in a task of
+   its own. The result comes back as a branch and a `RESULT.md`. Nothing is merged or pushed on its own: a task's
+   branch reaches GitHub only when I run `nc-work publish --push` on the host.
+3. **`nc memory add` to the memory repo.** On the host the note is committed and pushed directly. From a task it goes
+   through the broker (`nc memory apply --broker`), and the host decides which project file it lands in.
+4. **Overlay to policy and snapshot.** `~/.nc/overlay` is a link to my private overlay repo with my own `AGENTS.md`,
+   `models.yaml` and `profiles/`. `nc models` reads the model policy from it, `nc-work` bakes its `AGENTS.md` and
+   `models.yaml` into the harness snapshot, and `profiles/` holds my nc-work task profiles.
 
 Start with the [nc-harness README](https://github.com/iAmSerathion/nc-harness#readme) and its
 [architecture doc](https://github.com/iAmSerathion/nc-harness/blob/main/docs/ARCHITECTURE.md).
